@@ -14,26 +14,81 @@ from matplotlib import rc
 import matplotlib.colors as mcolors
 import matplotlib as mpl
 from matplotlib.ticker import MaxNLocator
-
 rc('text', usetex=False)
 
+#===========================================#
+# Description of captured metrics
+#===========================================#
+# state (tx, rx, fwd)
+# mgstype lte 0  wlan 1
+# sender -> Node that creates the msg
+# msgsize size of message (just application)
+# msgId -> unique ID
+# msgCt -> message creation time 
+# time -> simulation time
+#===========================================#
 
-# PATH TO FILES
-ips = "/root/EPN/ips.csv"
-server = "/root/EPN/msgs_server.csv"
-cars = "/root/EPN/msgs.csv"
-# READ FILES
-ip_header = ['id', 'fullname','IP','MAC','Time']
-ip_df = pd.read_csv(ips, names=ip_header)
-common_header = ['type', 'tx_rx','node','msg_type','source','destination','msgID','Time']
-server_df = pd.read_csv(server, names=common_header)
-cars_df = pd.read_csv(cars, names=common_header)
+# Statistics file as in omnet.ini
+cars = "/root/EPN/statistics.csv"
+# Header of stistic file
+stics_header = ['srctype','srcindex', 'dsttype', 'state', 'srcId', 'msgtype', 'sender', 'msgsize', 'msgId','msgCT','Time']
+stics_df = pd.read_csv(cars, names=stics_header)
 
 
+def pdr():
+    # Computed from source node[x] to server node
+    # pdr = (rx/tx)  
+    
+    # Filter Send msgs from src node[x]
+    wlan_node_tx_msgs_df = stics_df.loc[(stics_df['state'] == "tx")]
+    # Filter Received msgs at the server 
+    lte_server_rx_msgs_df = stics_df.loc[(stics_df['state'] == "rx") &
+                                        (stics_df['srctype'] == "server")]
+    # Compute PDR
+    pdr = lte_server_rx_msgs_df['state'].count()/wlan_node_tx_msgs_df['state'].count()
+    
+    print(f" PDR {pdr*100}%")
+    plot_pdr(pdr);
+    
+    return (wlan_node_tx_msgs_df, lte_server_rx_msgs_df)
+ 
+
+      
+def e2e_delay(tx,rx):
+    # Computed from source node[x] till server node
+    # e2e delay = car 2 car delay +  car 2 server 
+    
+    # Group tx with rx correspondent packet ID
+    tx_rx_df = pd.concat([tx, rx])  
+    msg_filtered = tx_rx_df.filter(items=['msgId','Time'])
+    temp_e2e_delay_df = msg_filtered.groupby(by='msgId', dropna=True).diff().dropna(axis=0).reset_index(drop=True)
+    
+    # Statistics 
+    e2e_delay_df = pd.DataFrame()
+    e2e_delay_df['Mean'] = temp_e2e_delay_df.mean()*1000 # in miliseconds
+    e2e_delay_df['SD'] = temp_e2e_delay_df.std()
+    e2e_delay_df['Type'] = 'wlan+LTE'
+    
+   
+    print(e2e_delay_df)
+    # Simple Bar Plot
+    plot_tx_time(e2e_delay_df, 'End-to-End Delay')
+
+    
+
+def plot_pdr(pdr):
+    # Prepare dataframe to plot
+    pdr_df = pd.DataFrame(data=[pdr], columns=['PDR'])
+    # Plot PDR 
+    fig, ax = plt.subplots(figsize=(2,3))
+    plt.bar('one-way',pdr_df['PDR'], width=0.5)
+    plt.ylabel(r'PDR') # Label on Y axis
+    
+    
 
 def plot_tx_time(df, y_label):
     #mpl.style.use('default')
-    fig, ax = plt.subplots(figsize=(2.5,2))
+    fig, ax = plt.subplots(figsize=(2,3))
     plt.errorbar(df['Type'], df['Mean'], yerr=df['SD'], fmt='o', color='Black', elinewidth=1,capthick=3,errorevery=1, alpha=1, ms=4, capsize = 5)
     plt.bar(df['Type'], df['Mean'], width=0.5, tick_label = df[r'Type'])
         
@@ -41,99 +96,8 @@ def plot_tx_time(df, y_label):
     plt.ylabel(r'{} [ms]'.format(y_label)) ##Label on Y axis
     #plt.grid(True, linewidth=0.2, linestyle='--')      
 
-    
-def plot_pdr(df):
-    print(df.keys())
-    fig, ax = plt.subplots(figsize=(2.5,2.5))
-    plt.bar(df['Type'], df['PDR'], width=0.5, tick_label = df[r'Type'])
-        
-    #ax.yaxis.set_major_locator(MaxNLocator(integer=True))
-    plt.ylabel(r'PDR') ##Label on Y axis
-    
-   
-    
-def merge_files():
-    frames = [cars_df, server_df]
-    df = pd.concat(frames)
-    
-    # Count Send msgs
-    car_tx_dsrc_msgs = df.loc[(df['type'] == "car") & (df['tx_rx'] == "tx") & (df['msg_type'] == 101)]
-    car_tx_lte_msgs = df.loc[(df['type'] == "car") & (df['tx_rx'] == "tx") & (df['msg_type'] == 100)]
-    
-    car_rx_dsrc_msgs = df.loc[(df['type'] == "car") & (df['tx_rx'] == "rx") & (df['msg_type'] == 101)]
-    car_rx_lte_msgs = df.loc[(df['type'] == "car") & (df['tx_rx'] == "rx") & (df['msg_type'] == 100)]
-    
-    server_tx_lte_msgs = df.loc[(df['type'] == "server") & (df['tx_rx'] == "tx") & (df['msg_type'] == 100)]
-    server_rx_lte_msgs = df.loc[(df['type'] == "server") & (df['tx_rx'] == "rx") & (df['msg_type'] == 100)]
-   
-    dsrc =  [car_tx_dsrc_msgs, car_rx_dsrc_msgs]
-    dsrc_df = pd.concat(dsrc)
-    
-    lte_rtt_time = [car_tx_lte_msgs, car_rx_lte_msgs]
-    lte_rtt_df = pd.concat(lte_rtt_time)
-    
-    #=============================================================================================
-    # PDR 
-    #=============================================================================================
-    pdr_dsrc = car_rx_dsrc_msgs['msgID'].count()/car_tx_dsrc_msgs['msgID'].count()
-    pdr_lte = car_rx_lte_msgs['msgID'].count()/car_tx_lte_msgs['msgID'].count()
-    pdr_dic = {'DSRC':pdr_dsrc, 'LTE':pdr_lte}
-    pdr_df = pd.DataFrame(pdr_dic, index=[0])
-    pdr_df = pdr_df.T.reset_index()
-    pdr_df = pdr_df.rename(columns={'index':'Type', 0:'PDR'})
-    plot_pdr(pdr_df)
-    #=============================================================================================
-    # E2E DELAY / RTT
-    #=============================================================================================
-   
-    
-    # DSRC Tx time 
-    dsrc_df_filtered = dsrc_df.filter(items=['msgID','Time'])
-    dsrc_tx_time = dsrc_df_filtered.groupby(by='msgID', dropna=True).diff().dropna(axis=0).reset_index(drop=True)
-    
-    dsrc_final = pd.DataFrame()
-    dsrc_final['Mean'] = dsrc_tx_time.mean()*1000
-    dsrc_final['SD'] = dsrc_tx_time.std()
-    dsrc_final['Type'] = 'DSRC'
-    
-    # LTE Tx Time
-    lte_tx_time = [car_tx_lte_msgs, server_rx_lte_msgs]
-    lte_tx_df = pd.concat(lte_tx_time)
-    lte_df_filtered = lte_tx_df.filter(items=['msgID','Time'])
-    lte_tx_time = lte_df_filtered.groupby(by='msgID', dropna=True).diff().dropna(axis=0).reset_index(drop=True)
-   
-    lte_final = pd.DataFrame()
-    lte_final['Mean'] = lte_tx_time.mean()*1000
-    lte_final['SD'] = lte_tx_time.std()
-    lte_final['Type'] = 'LTE'
-    
-    #end to end results
-    time_results_frame = [dsrc_final, lte_final]
-    time_results = pd.concat(time_results_frame)
-    
-    plot_tx_time(time_results, 'End-to-End Delay')
-    
-    # LTE RTT  ********* DSRC RTT estimated from end to end delay
-        
-    lte_rtt_filtered = lte_rtt_df.filter(items=['msgID','Time'])
-    lte_rtt_time = lte_rtt_filtered.groupby(by='msgID', dropna=True).diff().dropna(axis=0).reset_index(drop=True)
-   
-    lte_rtt_final = pd.DataFrame()
-    lte_rtt_final['Mean'] = lte_rtt_time.mean()*1000
-    lte_rtt_final['SD'] = lte_rtt_time.std()
-    lte_rtt_final['Type'] = 'LTE'
-    
-    
-    dscr_rtt_final = pd.DataFrame()
-    dscr_rtt_final['Mean'] = dsrc_final['Mean']*2
-    dscr_rtt_final['SD'] = dsrc_final['SD']
-    dscr_rtt_final['Type'] = 'DSRC'
-    
-    # RTT results
-    rtt_time_results_frame = [dscr_rtt_final, lte_rtt_final]
-    rtt_time_results = pd.concat(rtt_time_results_frame)
-    
-    plot_tx_time(rtt_time_results, 'Round Trip Time')
-   
-    
-merge_files()    
+
+  
+# Call functions
+tx, rx = pdr()
+e2e_delay(tx, rx)
