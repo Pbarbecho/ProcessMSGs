@@ -61,11 +61,16 @@ def e2e_delay(tx,rx):
     # Group tx with rx correspondent packet ID
     tx_rx_df = pd.concat([tx, rx])  
     msg_filtered = tx_rx_df.filter(items=['msgId','Time'])
+    
+    print(msg_filtered)
+    
     temp_e2e_delay_df = msg_filtered.groupby(by='msgId', dropna=True).diff().dropna(axis=0).reset_index(drop=True)
     
+    
+    print(temp_e2e_delay_df)
     # Statistics 
     e2e_delay_df = pd.DataFrame()
-    e2e_delay_df['Mean'] = temp_e2e_delay_df.mean()*1000 # in miliseconds
+    e2e_delay_df['Mean'] = temp_e2e_delay_df.mean() # in miliseconds
     e2e_delay_df['SD'] = temp_e2e_delay_df.std()
     e2e_delay_df['Type'] = 'wlan+LTE'
     
@@ -89,11 +94,12 @@ def plot_pdr(pdr):
 def plot_tx_time(df, y_label):
     #mpl.style.use('default')
     fig, ax = plt.subplots(figsize=(2,3))
-    plt.errorbar(df['Type'], df['Mean'], yerr=df['SD'], fmt='o', color='Black', elinewidth=1,capthick=3,errorevery=1, alpha=1, ms=4, capsize = 5)
+    
+    plt.errorbar(df['Type'], df['Mean'])
     plt.bar(df['Type'], df['Mean'], width=0.5, tick_label = df[r'Type'])
         
     ax.yaxis.set_major_locator(MaxNLocator(integer=True))
-    plt.ylabel(r'{} [ms]'.format(y_label)) ##Label on Y axis
+    plt.ylabel(r'{} [s]'.format(y_label)) ##Label on Y axis
     #plt.grid(True, linewidth=0.2, linestyle='--')      
 
 
